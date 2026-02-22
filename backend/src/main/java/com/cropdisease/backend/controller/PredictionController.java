@@ -2,6 +2,7 @@ package com.cropdisease.backend.controller;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
@@ -18,6 +19,11 @@ import java.util.Map;
 @RequestMapping("/api")
 public class PredictionController {
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final String aiServiceUrl;
+
+    public PredictionController(@Value("${ai.service.url:http://127.0.0.1:8000/predict}") String aiServiceUrl) {
+        this.aiServiceUrl = aiServiceUrl;
+    }
 
     @PostMapping(value = "/predict", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> predict(@RequestParam("file") MultipartFile file) {
@@ -26,8 +32,6 @@ public class PredictionController {
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("error", "No file uploaded"));
         }
-
-        String fastApiUrl = "http://127.0.0.1:8000/predict";
 
         RestTemplate restTemplate = new RestTemplate();
 
@@ -55,7 +59,7 @@ public class PredictionController {
 
         try {
             ResponseEntity<String> response =
-                    restTemplate.postForEntity(fastApiUrl, requestEntity, String.class);
+                    restTemplate.postForEntity(aiServiceUrl, requestEntity, String.class);
 
             if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null || response.getBody().isBlank()) {
                 return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
@@ -69,9 +73,16 @@ public class PredictionController {
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(payload);
         } catch (RestClientException e) {
+            String reason = e.getMostSpecificCause() != null
+                    ? e.getMostSpecificCause().getMessage()
+                    : e.getMessage();
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("error", "AI service is unavailable"));
+                    .body(Map.of(
+                            "error", "AI service is unavailable",
+                            "aiServiceUrl", aiServiceUrl,
+                            "details", reason == null ? "No details available" : reason
+                    ));
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .contentType(MediaType.APPLICATION_JSON)
